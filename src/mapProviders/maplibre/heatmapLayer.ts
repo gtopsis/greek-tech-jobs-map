@@ -74,15 +74,32 @@ export const createHeatmapLayer = () => {
   }
 
   /** Re-adds the source/layer (if missing) after a style change. */
-  const onStyleLoad = (map: MaplibreMap): void => { ensure(map); }
+  const onStyleLoad = (map: MaplibreMap): void => {
+    ensure(map)
+  }
 
+  /**
+   * Pushes `data` to the map however that's currently possible: if the
+   * source already exists, `setData` is always safe regardless of
+   * overall style-load status (it's a lightweight update to an existing
+   * source, not a new one) -- gating *that* on `isStyleLoaded()` (which
+   * fluctuates with unrelated in-flight style work like sprite/glyph
+   * loading, not a one-way "ready" latch) risks silently dropping a real
+   * update if it's called during a momentary `false` blip.
+   * `isStyleLoaded()` only genuinely matters for the very first
+   * `addSource`/`addLayer` call, which requires the style to exist at
+   * all; if that hasn't happened yet either, `onStyleLoad` picks this up
+   * using whatever `data` is current by then.
+   */
   const update = (map: MaplibreMap, jobs: readonly Job[]): void => {
     data = buildFeatureCollection(jobs)
-    if (!map.isStyleLoaded()) return // onStyleLoad will pick up `data` once ready
 
-    ensure(map)
     const source = map.getSource<GeoJSONSource>(SOURCE_ID)
-    void source?.setData(data)
+    if (source) {
+      void source.setData(data)
+    } else if (map.isStyleLoaded()) {
+      ensure(map)
+    }
   }
 
   const setVisible = (map: MaplibreMap, visible: boolean): void => {

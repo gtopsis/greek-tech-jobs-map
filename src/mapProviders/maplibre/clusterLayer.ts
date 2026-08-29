@@ -11,6 +11,7 @@ export interface ClusterLayerCallbacks {
 }
 
 const SOURCE_ID = 'job-markers'
+const INVISIBLE_LAYER_ID = 'job-markers-tile-loader'
 const CLUSTER_RADIUS = 50
 const CLUSTER_MAX_ZOOM = 14
 const HIGHLIGHT_CLASS = 'marker-highlighted'
@@ -87,6 +88,43 @@ export const createClusterLayer = (callbacks: ClusterLayerCallbacks) => {
       clusterMaxZoom: CLUSTER_MAX_ZOOM,
       clusterProperties: { sumJobCount: ['+', ['get', 'jobCount']] }
     })
+    // querySourceFeatures only returns features from tiles MapLibre has
+    // actually requested/loaded for the current viewport -- and that's
+    // driven entirely by which *layers* reference a source, not by the
+    // source's mere existence. Since every visible marker/cluster here is
+    // a plain HTML overlay (see syncMarkers), not a GL paint layer, this
+    // source would otherwise never have any layer causing its tiles to
+    // load, and querySourceFeatures would stay permanently empty. This
+    // fully transparent circle layer exists solely to make MapLibre treat
+    // the source as "in use" for tile-loading purposes; it paints nothing.
+    m.addLayer({
+      id: INVISIBLE_LAYER_ID,
+      type: 'circle',
+      source: SOURCE_ID,
+      paint: { 'circle-opacity': 0, 'circle-radius': 0 }
+    })
+  }
+
+  /**
+   * Pushes the current `data` to the map, however that's currently
+   * possible: if the source already exists, `setData` is always safe
+   * regardless of overall style-load status (it's a lightweight update to
+   * an existing source, not a new one) -- gating *that* on
+   * `isStyleLoaded()` (which fluctuates with unrelated in-flight style
+   * work like sprite/glyph loading, not a one-way "ready" latch) risks
+   * silently dropping a real update if it's called during a momentary
+   * `false` blip. `isStyleLoaded()` only genuinely matters for the very
+   * first `addSource` call, which requires the style to exist at all; if
+   * that hasn't happened yet either, `onStyleLoad` (see styleSwitcher.ts)
+   * is what picks this up, using whatever `data` is current by then.
+   */
+  const syncSource = (m: MaplibreMap): void => {
+    const existing = m.getSource<GeoJSONSource>(SOURCE_ID)
+    if (existing) {
+      void existing.setData(data)
+    } else if (m.isStyleLoaded()) {
+      ensureSource(m)
+    }
   }
 
   const removeAllMarkers = (): void => {
@@ -208,11 +246,7 @@ export const createClusterLayer = (callbacks: ClusterLayerCallbacks) => {
 
     data = { type: 'FeatureCollection', features }
 
-    if (map?.isStyleLoaded()) {
-      ensureSource(map)
-      const source = map.getSource<GeoJSONSource>(SOURCE_ID)
-      void source?.setData(data)
-    }
+    if (map) syncSource(map)
   }
 
   /** Re-adds the source (with the latest data) after a style change. */
