@@ -10,7 +10,14 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 // worker file as a URL asset (so Vite bundles/hashes it properly) and
 // pointing MapLibre at that resolved URL is the officially documented fix
 // for this exact bundler gap.
-import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
+//
+// Must be `?worker&url` (not plain `?url`): the worker's own source has a
+// further static `import ... from './maplibre-gl-shared.mjs'`, and plain
+// `?url` only copies the file byte-for-byte without resolving that --
+// `?worker&url` runs it through Vite's actual worker-bundling pipeline
+// first, inlining that dependency, so nothing is left dangling at a
+// relative path Vite never accounted for.
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import type { MapProviderAdapter, MapProviderInitOptions, MapView, ViewMode } from '@/mapProviders/types'
 import { GREECE_CENTER, GREECE_DEFAULT_ZOOM } from '@/utils/geo'
 import { createStyleSwitcher } from '@/mapProviders/maplibre/styleSwitcher'
