@@ -185,7 +185,7 @@ watch(
     <button
       v-else
       type="button"
-      class="map-view-toggle absolute top-3 right-3 z-[1000] rounded-lg px-3 py-1.5 text-xs font-semibold shadow-md bg-(--color-bg) text-(--color-text-1) ring-1 ring-inset ring-(--color-divider) cursor-pointer hover:opacity-90"
+      class="map-view-toggle absolute top-3 left-3 z-[1000] rounded-lg px-3 py-1.5 text-xs font-semibold shadow-md bg-(--color-bg) text-(--color-text-1) ring-1 ring-inset ring-(--color-divider) cursor-pointer hover:opacity-90"
       :aria-pressed="viewMode === 'heatmap'"
       :title="
         (viewMode === 'markers' ? 'Switch to heatmap view' : 'Switch to marker view') + ' (Alt+H)'
@@ -296,6 +296,13 @@ watch(
   line-height: 1.4;
   max-height: 300px;
   overflow-y: auto;
+  /* MapLibre's popup background is always white (see maplibre-gl.css),
+   * regardless of the app's own light/dark theme -- but this component's
+   * text otherwise inherits `--color-text-*`, which *does* flip for dark
+   * mode (assuming a dark page background), leaving near-invisible light
+   * text on this always-white popup. Pinned to a fixed dark color instead
+   * of a theme variable so it stays readable in both themes. */
+  color: #1f2937;
 }
 
 .maplibregl-popup-content strong {
