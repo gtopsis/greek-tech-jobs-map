@@ -4,8 +4,8 @@ import { getJobCoords, getJobId } from '@/utils/geo'
 import { bindPopupUnlessMobile } from '@/mapProviders/maplibre/popup'
 
 export interface ClusterLayerCallbacks {
-  /** Builds the popup HTML shown when an individual pin (one or more jobs at the same location) is clicked. */
-  buildPopupContent: (jobs: Job[]) => string
+  /** Builds the popup content shown when an individual pin (one or more jobs at the same location) is clicked. */
+  buildPopupContent: (jobs: Job[]) => HTMLElement
   /** Called when an individual pin is clicked. */
   onMarkerClick: (jobs: Job[]) => void
 }

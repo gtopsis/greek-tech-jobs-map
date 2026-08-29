@@ -6,8 +6,8 @@ import { bindPopupUnlessMobile } from '@/mapProviders/maplibre/popup'
 import greeceBoundary from '@/data/greece-boundary.json'
 
 export interface RemoteJobsLayerCallbacks {
-  /** Builds the popup HTML shown when the remote marker is clicked. */
-  buildPopupContent: (jobs: Job[]) => string
+  /** Builds the popup content shown when the remote marker is clicked. */
+  buildPopupContent: (jobs: Job[]) => HTMLElement
   /** Called when the remote marker is clicked (mirrors city marker clicks). */
   onMarkerClick: (jobs: Job[]) => void
 }

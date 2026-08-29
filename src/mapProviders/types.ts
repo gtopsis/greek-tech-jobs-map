@@ -18,8 +18,8 @@ export type ViewMode = 'markers' | 'heatmap'
 export interface MapProviderInitOptions {
   /** A persisted viewport (e.g. from a shared URL) to restore on init, instead of the default Greece-wide view. */
   initialView: MapView | null
-  /** Builds the popup HTML shown when a marker (one or more jobs) is clicked. */
-  buildPopupContent: (jobs: Job[]) => string
+  /** Builds the popup content shown when a marker (one or more jobs) is clicked. */
+  buildPopupContent: (jobs: Job[]) => HTMLElement
   /** Fired whenever the viewport's visible bounds change (pan/zoom end). */
   onBoundsChanged: (bounds: MapBounds) => void
   /** Fired whenever the viewport's center/zoom change, for URL persistence. */

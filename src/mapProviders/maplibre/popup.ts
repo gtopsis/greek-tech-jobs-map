@@ -18,11 +18,15 @@ const POPUP_MAX_WIDTH = 'min(320px, 90vw)'
  * duplicate that in a small overlay that can visually compete with the
  * sheet. Desktop has no such sheet, so the popup stays the primary
  * at-a-glance affordance there.
+ *
+ * `buildContent` returns a real DOM element (see utils/jobPopupContent.ts),
+ * attached via `setDOMContent` rather than `setHTML` -- no job data (which
+ * comes from a third-party spreadsheet) is ever parsed as markup.
  */
-export const bindPopupUnlessMobile = (marker: Marker, buildContent: () => string): void => {
+export const bindPopupUnlessMobile = (marker: Marker, buildContent: () => HTMLElement): void => {
   if (isMobileViewport()) return
   marker.setPopup(
-    new Popup({ offset: POPUP_OFFSET_PX, closeButton: false, maxWidth: POPUP_MAX_WIDTH }).setHTML(
+    new Popup({ offset: POPUP_OFFSET_PX, closeButton: false, maxWidth: POPUP_MAX_WIDTH }).setDOMContent(
       buildContent()
     )
   )

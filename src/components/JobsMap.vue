@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, ref, watch } from 'vue'
 import type { Job } from '@/types/types'
 import type { MapBounds, MapView, ViewMode } from '@/mapProviders/types'
 import { useMapProvider } from '@/composables/useMapProvider'
+import { buildJobsPopupContent } from '@/utils/jobPopupContent'
 import { debounce } from '@/utils/debounce'
 
 export type { MapView }
@@ -30,17 +31,6 @@ const mapContainer = ref<HTMLDivElement | null>(null)
 const viewMode = ref<ViewMode>('markers')
 const mapError = ref<string | null>(null)
 let resizeObserver: ResizeObserver | null = null
-
-const buildPopupContent = (jobs: Job[]): string => {
-  if (jobs.length === 1) {
-    const { title, company, location } = jobs[0]!
-    return `<strong>${title}</strong><br>${company}<br><em>${location}</em>`
-  }
-
-  const scrollable = jobs.length > 15 ? ' scrollable' : ''
-  const items = jobs.map((job) => `<li>${job.company} &ndash; ${job.title}</li>`).join('')
-  return `<strong>${jobs.length} jobs</strong><ul class="jobs-list${scrollable}">${items}</ul>`
-}
 
 /**
  * Hides the nationwide remote-jobs overlay in heatmap view, where a
@@ -124,7 +114,7 @@ onMounted(() => {
 
   mapProvider.init(mapContainer.value, {
     initialView: props.initialView ?? null,
-    buildPopupContent,
+    buildPopupContent: buildJobsPopupContent,
     onBoundsChanged: (bounds) => { emit('bounds-changed', bounds); },
     onViewChanged: (view) => { emit('view-changed', view); },
     onMarkerClick: (jobs) => { emit('marker-click', jobs); },
