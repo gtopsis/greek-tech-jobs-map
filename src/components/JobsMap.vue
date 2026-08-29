@@ -199,6 +199,22 @@ watch(
 </template>
 
 <style>
+/*
+ * maplibre-gl.css's own `.maplibregl-map { position: relative }` rule has
+ * the same specificity as Tailwind's `.absolute` utility already on this
+ * element (see the template), so which one wins depends on unpredictable
+ * bundle/import ordering -- when maplibre-gl.css wins, `inset-0` silently
+ * becomes a no-op. Since MapLibre's own children (the canvas etc.) are
+ * absolutely positioned, that leaves this container's height at its auto
+ * (content) height -- 0, since absolutely positioned children don't
+ * contribute to it -- instead of filling its sized parent. `!important`
+ * makes this deterministic regardless of import order.
+ */
+.maplibregl-map {
+  position: absolute !important;
+  inset: 0;
+}
+
 .custom-marker {
   background: none;
   border: none;

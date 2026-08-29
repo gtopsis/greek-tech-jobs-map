@@ -1,5 +1,16 @@
-import { Map as MaplibreMap, NavigationControl } from 'maplibre-gl'
+import { Map as MaplibreMap, NavigationControl, setWorkerUrl } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+// MapLibre computes its worker script's URL at runtime, relative to its own
+// bundled module's `import.meta.url` -- a pattern Vite can't statically
+// detect (unlike the `new Worker(new URL('...', import.meta.url))` form it
+// looks for), so the worker file never gets copied into the build output
+// and `new Worker(...)` 404s in production (this doesn't surface as a
+// crash: the map object is still created, it just never renders anything,
+// since no worker ever comes up to parse tiles). Explicitly importing the
+// worker file as a URL asset (so Vite bundles/hashes it properly) and
+// pointing MapLibre at that resolved URL is the officially documented fix
+// for this exact bundler gap.
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import type { MapProviderAdapter, MapProviderInitOptions, MapView, ViewMode } from '@/mapProviders/types'
 import { GREECE_CENTER, GREECE_DEFAULT_ZOOM } from '@/utils/geo'
 import { createStyleSwitcher } from '@/mapProviders/maplibre/styleSwitcher'
@@ -7,6 +18,8 @@ import { createClusterLayer } from '@/mapProviders/maplibre/clusterLayer'
 import { createHeatmapLayer } from '@/mapProviders/maplibre/heatmapLayer'
 import { createRemoteJobsLayer } from '@/mapProviders/maplibre/remoteJobsLayer'
 import type { Job } from '@/types/types'
+
+setWorkerUrl(maplibreWorkerUrl)
 
 const FLY_TO_MIN_ZOOM = 12
 
