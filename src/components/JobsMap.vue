@@ -1,25 +1,11 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
-import 'leaflet.markercluster'
-import 'leaflet.markercluster/dist/MarkerCluster.css'
-import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import type { Job } from '@/types/types'
-import { GREECE_CENTER, GREECE_DEFAULT_ZOOM } from '@/utils/geo'
-import type { MapBounds } from '@/utils/geo'
-import { createRemoteJobsLayer } from '@/utils/remoteJobsLayer'
-import { createMarkerClusterLayer } from '@/utils/markerClusterLayer'
-import { createHeatmapLayer } from '@/utils/heatmapLayer'
-import { createDarkModeTileLayer } from '@/utils/darkModeTiles'
-import { useMarkerHighlight } from '@/composables/useMarkerHighlight'
+import type { MapBounds, MapView, ViewMode } from '@/mapProviders/types'
+import { useMapProvider } from '@/composables/useMapProvider'
 import { debounce } from '@/utils/debounce'
 
-export interface MapView {
-  lat: number
-  lng: number
-  zoom: number
-}
+export type { MapView }
 
 const props = defineProps<{
   jobs: readonly Job[]
@@ -34,13 +20,16 @@ const emit = defineEmits<{
   'view-changed': [view: MapView]
 }>()
 
-let map: L.Map | null = null
-let markersByJobId = new Map<string, L.Marker>()
-let resizeObserver: ResizeObserver | null = null
-let stopDarkModeListener: (() => void) | null = null
+// The whole point of this component: it depends only on the
+// MapProviderAdapter contract (src/mapProviders/types.ts), never on any
+// particular map library directly. To change map providers, see
+// src/composables/useMapProvider.ts -- nothing here needs to change.
+const mapProvider = useMapProvider()
+
 const mapContainer = ref<HTMLDivElement | null>(null)
-type ViewMode = 'markers' | 'heatmap'
 const viewMode = ref<ViewMode>('markers')
+const mapError = ref<string | null>(null)
+let resizeObserver: ResizeObserver | null = null
 
 const buildPopupContent = (jobs: Job[]): string => {
   if (jobs.length === 1) {
@@ -53,135 +42,39 @@ const buildPopupContent = (jobs: Job[]): string => {
   return `<strong>${jobs.length} jobs</strong><div class="jobs-list${scrollable}">${items}</div>`
 }
 
-const registerMarker = (jobId: string, marker: L.Marker): void => {
-  markersByJobId.set(jobId, marker)
-}
-
-// Each factory below owns one Leaflet layer's lifecycle (creation,
-// updates, attach/detach) so this component only has to orchestrate
-// *when* each layer is shown/refreshed, not *how*. All three share
-// `markersByJobId` (reset once per job-list change in refreshJobLayers)
-// so flyToJob/highlight work uniformly across city and remote markers.
-const markerClusterLayer = createMarkerClusterLayer({
-  buildPopupContent,
-  onMarkerClick: (jobs) => {
-    emit('marker-click', jobs)
-  },
-  registerMarker
-})
-
-const heatmapLayer = createHeatmapLayer()
-
-const darkModeTileLayer = createDarkModeTileLayer()
-
-const remoteJobsLayer = createRemoteJobsLayer({
-  buildPopupContent,
-  onMarkerClick: (jobs) => {
-    emit('marker-click', jobs)
-  },
-  registerMarker
-})
-
-const emitBounds = (): void => {
-  if (!map) return
-  const bounds = map.getBounds()
-  emit('bounds-changed', {
-    north: bounds.getNorth(),
-    south: bounds.getSouth(),
-    east: bounds.getEast(),
-    west: bounds.getWest()
-  })
-
-  const center = map.getCenter()
-  emit('view-changed', { lat: center.lat, lng: center.lng, zoom: map.getZoom() })
-}
-
-const initMap = (container: HTMLElement): void => {
-  if (map) return
-
-  const center: [number, number] = props.initialView
-    ? [props.initialView.lat, props.initialView.lng]
-    : GREECE_CENTER
-  const zoom = props.initialView?.zoom ?? GREECE_DEFAULT_ZOOM
-
-  map = L.map(container, {
-    center,
-    zoom,
-    zoomControl: true,
-    scrollWheelZoom: true
-  })
-
-  stopDarkModeListener = darkModeTileLayer.attachTo(map)
-  markerClusterLayer.attachTo(map)
-
-  map.on('moveend', emitBounds)
-}
-
 /**
  * Hides the nationwide remote-jobs overlay in heatmap view, where a
  * translucent country-wide fill would visually compete with the
  * heatmap's own color scale.
  */
 const updateRemoteLayer = (): void => {
-  if (!map) return
-  remoteJobsLayer.update(map, props.remoteJobs ?? [], viewMode.value !== 'heatmap')
+  mapProvider.setRemoteJobs(props.remoteJobs ?? [], viewMode.value !== 'heatmap')
 }
 
 /**
- * Rebuilds the city-marker layer, the remote overlay, and (if active) the
- * heatmap. Does not re-fit the viewport -- see fitToInitialJobsOnce.
+ * Rebuilds the city-marker/cluster layer and the remote overlay. Does not
+ * re-fit the viewport -- see fitToInitialJobsOnce.
  */
 const refreshJobLayers = (): void => {
-  // Reset once per cycle: both layer factories only ever *add* entries via
-  // registerMarker, they never clear this shared registry themselves.
-  markersByJobId = new Map()
-
-  markerClusterLayer.update(props.jobs)
+  mapProvider.setJobs(props.jobs)
   updateRemoteLayer()
-  if (viewMode.value === 'heatmap') {
-    heatmapLayer.update(props.jobs).catch((err: unknown) => {
-      console.error('Failed to update heatmap layer.', err)
-    })
-  }
 }
 
 /**
- * Shows either the clustered pin markers or a density heatmap. Heatmap
- * rendering relies on 2D canvas support (and, on first use, on the
- * `leaflet.heat` plugin's dynamic import resolving -- see
- * heatmapLayer.ts); if unavailable or it fails for any reason, falls
- * back to the marker view instead of crashing the app.
+ * Shows either the clustered pin markers or a density heatmap. If the
+ * requested mode can't be rendered (the provider is the one that knows
+ * why -- e.g. no WebGL/canvas support), falls back to the marker view
+ * instead of leaving the map in a broken state.
  */
 const applyViewMode = async (): Promise<void> => {
-  if (!map) return
+  const succeeded = await mapProvider.setViewMode(viewMode.value)
 
-  if (viewMode.value === 'heatmap') {
-    try {
-      await heatmapLayer.update(props.jobs)
-      // The component may have unmounted (map torn down to null, in
-      // onUnmounted below) while the above was in flight -- re-check
-      // before touching `map` again. TS's flow analysis can't see across
-      // that closure mutation, so it (wrongly) considers this redundant.
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-      if (!map) return
-
-      markerClusterLayer.detachFrom(map)
-      heatmapLayer.attachTo(map)
-      updateRemoteLayer()
-      return
-    } catch (err) {
-      console.error('Heatmap view is unavailable, falling back to markers.', err)
-      viewMode.value = 'markers'
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- see above
-      if (!map) return
-      heatmapLayer.detachFrom(map)
-    }
+  if (!succeeded && viewMode.value === 'heatmap') {
+    console.error('Heatmap view is unavailable, falling back to markers.')
+    viewMode.value = 'markers'
+    await mapProvider.setViewMode('markers')
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- see above
-  if (!map) return
-  heatmapLayer.detachFrom(map)
-  markerClusterLayer.attachTo(map)
   updateRemoteLayer()
 }
 
@@ -202,13 +95,12 @@ let hasFitInitialBounds = false
  * a shared URL) skips auto-fitting entirely.
  */
 const fitToInitialJobsOnce = (): void => {
-  if (!map || hasFitInitialBounds || props.initialView || props.jobs.length === 0) return
-  markerClusterLayer.fitBounds(map)
+  if (hasFitInitialBounds || props.initialView || props.jobs.length === 0) return
+  mapProvider.fitToJobs()
   hasFitInitialBounds = true
 }
 
 const syncMapForJobsChange = (): void => {
-  if (!map) return
   refreshJobLayers()
   fitToInitialJobsOnce()
 }
@@ -222,21 +114,26 @@ const JOBS_CHANGE_DEBOUNCE_MS = 200
 const debouncedSyncMapForJobsChange = debounce(syncMapForJobsChange, JOBS_CHANGE_DEBOUNCE_MS)
 
 const flyToJob = (jobId: string): void => {
-  const marker = markersByJobId.get(jobId)
-  if (!map || !marker) return
-
-  map.flyTo(marker.getLatLng(), Math.max(map.getZoom(), 12))
-  marker.openPopup()
+  mapProvider.flyToJob(jobId)
 }
 
 defineExpose({ flyToJob, toggleViewMode })
 
-const { applyHighlight } = useMarkerHighlight(() => markersByJobId)
-
 onMounted(() => {
   if (!mapContainer.value) return
 
-  initMap(mapContainer.value)
+  mapProvider.init(mapContainer.value, {
+    initialView: props.initialView ?? null,
+    buildPopupContent,
+    onBoundsChanged: (bounds) => { emit('bounds-changed', bounds); },
+    onViewChanged: (view) => { emit('view-changed', view); },
+    onMarkerClick: (jobs) => { emit('marker-click', jobs); },
+    onFatalError: (err) => {
+      console.error('Map failed to initialize.', err)
+      mapError.value = 'The map could not be loaded in this browser.'
+    }
+  })
+
   refreshJobLayers()
   void applyViewMode()
 
@@ -244,32 +141,17 @@ onMounted(() => {
   // otherwise the jobs-changed watcher below picks this up once they
   // arrive from the (typically async) initial fetch.
   fitToInitialJobsOnce()
-  // Ensure listeners always receive an initial viewport, even when there
-  // are no markers to fit bounds to (moveend wouldn't otherwise fire).
-  emitBounds()
 
   if (typeof ResizeObserver !== 'undefined') {
-    resizeObserver = new ResizeObserver(() => map?.invalidateSize())
+    resizeObserver = new ResizeObserver(() => { mapProvider.resize(); })
     resizeObserver.observe(mapContainer.value)
   }
 })
 
 onUnmounted(() => {
   debouncedSyncMapForJobsChange.cancel()
-  stopDarkModeListener?.()
   resizeObserver?.disconnect()
-  if (map) {
-    try {
-      map.remove()
-    } catch (err) {
-      // A layer that failed to fully initialize (e.g. heatmap without
-      // canvas support) can leave Leaflet's internal DOM bookkeeping in an
-      // inconsistent state; swallow teardown errors rather than letting
-      // them surface as unhandled exceptions.
-      console.error('Error while tearing down the map', err)
-    }
-    map = null
-  }
+  mapProvider.destroy()
 })
 
 // Not `{ deep: true }`: `jobs`/`remoteJobs` are always new array
@@ -278,7 +160,10 @@ onUnmounted(() => {
 // object inside them on each keystroke would just add unnecessary work.
 watch([() => props.jobs, () => props.remoteJobs], debouncedSyncMapForJobsChange)
 
-watch(() => props.highlightedJobId, applyHighlight)
+watch(
+  () => props.highlightedJobId,
+  (jobId) => { mapProvider.setHighlightedJob(jobId ?? null); }
+)
 </script>
 
 <template>
@@ -290,7 +175,15 @@ watch(() => props.highlightedJobId, applyHighlight)
       class="absolute inset-0"
     ></div>
 
+    <div
+      v-if="mapError"
+      class="absolute inset-0 flex items-center justify-center text-center p-6 bg-(--color-bg) text-(--color-text-2) text-sm"
+    >
+      {{ mapError }}
+    </div>
+
     <button
+      v-else
       type="button"
       class="map-view-toggle absolute top-3 right-3 z-[1000] rounded-lg px-3 py-1.5 text-xs font-semibold shadow-md bg-(--color-bg) text-(--color-text-1) ring-1 ring-inset ring-(--color-divider) cursor-pointer hover:opacity-90"
       :aria-pressed="viewMode === 'heatmap'"
@@ -378,12 +271,10 @@ watch(() => props.highlightedJobId, applyHighlight)
   background: #ef4444;
 }
 
-.leaflet-popup-content-wrapper {
+.maplibregl-popup-content {
   border-radius: 8px;
-}
-
-.leaflet-popup-content {
-  margin: 12px;
+  margin: 0;
+  padding: 12px;
   font-family: inherit;
   font-size: 13px;
   line-height: 1.4;
@@ -391,7 +282,7 @@ watch(() => props.highlightedJobId, applyHighlight)
   overflow-y: auto;
 }
 
-.leaflet-popup-content strong {
+.maplibregl-popup-content strong {
   font-size: 14px;
 }
 

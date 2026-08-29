@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import HomeView from '@/views/HomeView.vue'
 import JobsMap from '@/components/JobsMap.vue'
+import { useMapProvider } from '@/composables/useMapProvider'
+import type { FakeMapProvider } from '@/mapProviders/testUtils/fakeMapProvider'
 
 const HEADER_ROWS = Array.from({ length: 5 }, () => ['', '', '', '', ''])
 
@@ -47,13 +49,22 @@ const mountHomeView = async (): Promise<VueWrapper> => {
   return wrapper
 }
 
+// Grabs the fake MapProviderAdapter instance backing the currently-mounted
+// JobsMap (see vitest.setup.ts / fakeMapProvider.ts), so a test can
+// reconfigure it (e.g. make `setViewMode` reject) after mounting.
+const getLatestFakeMapProvider = (): FakeMapProvider => {
+  const results = vi.mocked(useMapProvider).mock.results
+  return results[results.length - 1]!.value as FakeMapProvider
+}
+
 /**
  * The list defaults to following the map's current viewport ("area"
- * focus). In jsdom, the map container has no real size, so Leaflet's
- * computed bounds are degenerate and exclude every job -- tests that care
- * about filter/search/notice behavior (not map-viewport math) opt out via
- * the "Sync list with map view" toggle first, same as a user unchecking
- * it to see every matching job regardless of pan/zoom.
+ * focus). The map itself is a test double here (see vitest.setup.ts) that
+ * reports an initial viewport covering the whole globe, so nothing is
+ * narrowed out by default -- tests that care about filter/search/notice
+ * behavior (not map-viewport narrowing) still opt out via the "Sync list
+ * with map view" toggle first, matching what a user unchecking it would
+ * do and staying robust if that default viewport ever changes.
  */
 const showAllJobs = async (wrapper: VueWrapper): Promise<void> => {
   const toggle = wrapper.findAll('input[type="checkbox"]')[0]!
@@ -168,39 +179,34 @@ describe('HomeView', () => {
   })
 
   it('gracefully falls back to markers view if heatmap rendering is unavailable', async () => {
-    // jsdom doesn't implement canvas 2D contexts, so leaflet.heat can't
-    // actually render. This verifies the app degrades gracefully (no
-    // crash, button stays reflecting marker view) instead of relying on
-    // canvas support being present.
+    // Simulates a provider that can't render heatmap mode (e.g. no WebGL
+    // support) -- verifies the app degrades gracefully (no crash, button
+    // stays reflecting marker view) instead of assuming it always works.
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     wrapper = await mountHomeView()
+    getLatestFakeMapProvider().setViewMode.mockResolvedValueOnce(false)
 
     const toggle = wrapper.find('.map-view-toggle')
     expect(toggle.text()).toBe('Heatmap')
 
     await toggle.trigger('click')
-    // The heatmap layer's `leaflet.heat` plugin is loaded via a dynamic
-    // import (see heatmapLayer.ts) before its (here, failing) canvas
-    // setup even runs -- a real wait (not just microtask flushes) lets
-    // that import genuinely resolve before asserting on the fallback.
-    await new Promise((resolve) => setTimeout(resolve, 100))
     await flushPromises()
 
     expect(toggle.text()).toBe('Heatmap')
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Heatmap view is unavailable'),
-      expect.anything()
+      expect.stringContaining('Heatmap view is unavailable')
     )
   })
 
   it('requires Alt for the r/h keyboard shortcuts (WCAG 2.1.4: Character Key Shortcuts)', async () => {
-    // jsdom can't actually render the heatmap (see the fallback test
-    // above), so toggling it always logs and reverts -- used here purely
-    // as a signal that the "h" shortcut actually ran toggleViewMode().
+    // Reuses the same "provider rejects heatmap mode" signal as the
+    // fallback test above, purely to confirm the "h" shortcut actually ran
+    // toggleViewMode().
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     wrapper = await mountHomeView()
+    getLatestFakeMapProvider().setViewMode.mockResolvedValue(false)
 
     const fetchCallsBefore = (window.fetch as ReturnType<typeof vi.fn>).mock.calls.length
 
@@ -211,8 +217,7 @@ describe('HomeView', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', altKey: true }))
     await flushPromises()
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Heatmap view is unavailable'),
-      expect.anything()
+      expect.stringContaining('Heatmap view is unavailable')
     )
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r' }))
