@@ -5,6 +5,11 @@ import { isMobileViewport } from '@/utils/viewport'
 // anchored at its bottom tip -- lifts the popup clear of the pin itself.
 const POPUP_OFFSET_PX = 30
 
+// MapLibre's own default (`240px`) is too narrow for most job titles,
+// forcing awkward mid-word wraps; capped at `90vw` so it still fits on
+// narrow (desktop-only, see isMobileViewport below) viewports.
+const POPUP_MAX_WIDTH = 'min(320px, 90vw)'
+
 /**
  * Binds a popup to a marker, except on mobile viewports -- where tapping a
  * marker already expands the bottom sheet to the same job(s) in a much
@@ -16,5 +21,9 @@ const POPUP_OFFSET_PX = 30
  */
 export const bindPopupUnlessMobile = (marker: Marker, buildContent: () => string): void => {
   if (isMobileViewport()) return
-  marker.setPopup(new Popup({ offset: POPUP_OFFSET_PX, closeButton: false }).setHTML(buildContent()))
+  marker.setPopup(
+    new Popup({ offset: POPUP_OFFSET_PX, closeButton: false, maxWidth: POPUP_MAX_WIDTH }).setHTML(
+      buildContent()
+    )
+  )
 }

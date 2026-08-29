@@ -38,8 +38,8 @@ const buildPopupContent = (jobs: Job[]): string => {
   }
 
   const scrollable = jobs.length > 15 ? ' scrollable' : ''
-  const items = jobs.map((job) => `${job.company} - ${job.title}`).join('<br>')
-  return `<strong>${jobs.length} jobs</strong><div class="jobs-list${scrollable}">${items}</div>`
+  const items = jobs.map((job) => `<li>${job.company} &ndash; ${job.title}</li>`).join('')
+  return `<strong>${jobs.length} jobs</strong><ul class="jobs-list${scrollable}">${items}</ul>`
 }
 
 /**
@@ -296,6 +296,7 @@ watch(
   line-height: 1.4;
   max-height: 300px;
   overflow-y: auto;
+  overflow-wrap: break-word;
   /* MapLibre's popup background is always white (see maplibre-gl.css),
    * regardless of the app's own light/dark theme -- but this component's
    * text otherwise inherits `--color-text-*`, which *does* flip for dark
@@ -309,10 +310,18 @@ watch(
   font-size: 14px;
 }
 
+.jobs-list {
+  margin: 8px 0 0;
+  padding-left: 1.1em;
+}
+
+.jobs-list li {
+  margin-bottom: 4px;
+}
+
 .jobs-list.scrollable {
   max-height: 200px;
   overflow-y: auto;
-  margin-top: 8px;
   padding-right: 4px;
 }
 
